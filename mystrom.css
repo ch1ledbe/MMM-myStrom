@@ -1,0 +1,220 @@
+/*********************************************
+ * myStrom Module – Base Container
+ *********************************************/
+
+.mmm-mystrom {
+  width: 100%;
+}
+
+.mmm-mystrom-wrapper {
+  display: flex;
+  flex-direction: column;
+  padding-top: 20px;
+  box-sizing: border-box;
+}
+
+/*********************************************
+ * Title
+ *********************************************/
+
+.mmm-mystrom-title {
+  display: block;
+  text-align: center;
+  font-family: "Nunito", "Poppins", "Montserrat", sans-serif;
+  font-weight: 600;
+  font-size: 1em;
+  color: #00B894;
+  padding-bottom: 6px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/*********************************************
+ * Info / No Devices
+ *********************************************/
+
+.mmm-mystrom-info {
+  opacity: 0.8;
+  font-style: italic;
+  text-align: center;
+}
+
+/*********************************************
+ * Layout – Column Mode
+ *********************************************/
+
+.mmm-mystrom-column {
+  border-top: 2px solid rgba(0, 184, 148, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mmm-mystrom-column.flex {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/*********************************************
+ * Layout – Inline Mode
+ *********************************************/
+
+.mmm-mystrom-inline {
+  border-top: 2px solid rgba(0, 184, 148, 0.8);
+  display: grid;
+  grid-auto-flow: column;       /* inline-like flow */
+  grid-auto-columns: 150px;     /* all device cards same width */
+  gap: 5px;
+}
+
+/*********************************************
+ * Layout – Values
+ *********************************************/
+
+.mmm-mystrom-values {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.7em;
+}
+
+.mmm-mystrom-values li {
+  margin: 2px 0;
+}
+
+.mmm-mystrom-error {
+  color: #ff6b6b;
+  font-weight: 400;
+  font-size: 0.8em;
+}
+
+/*********************************************
+ * Room - Values
+ *********************************************/
+
+.mmm-mystrom-room {
+  padding-left: 8px;
+  border-left: 1px solid rgba(255,255,255,0.2);
+}
+
+.mmm-mystrom-room-title {
+  margin: 6px 0;
+  font-weight: 600;
+  color: #00B894;
+  text-align: left;
+}
+
+.mmm-mystrom-room-badge { 
+  margin-bottom: 4px;
+  font-size: 0.7rem;
+  color: #00B894;
+  opacity: 0.8;
+}
+
+/*********************************************
+ * Device Item
+ *********************************************/
+
+.mmm-mystrom-device {
+  margin: 6px 0 5px;
+  padding: 6px 10px;
+  text-align: left;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  width: 130px;
+}
+
+.mmm-mystrom-device-on {
+  background-color: rgba(50, 205, 50, 0.3);
+  border-left: inset 2px solid #32CD32;
+  box-shadow: inset 2px 0 0 rgba(50, 205, 50, 0.95);
+}
+
+.mmm-mystrom-device-name {
+  margin-bottom: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
+.mmm-mystrom-device-value {
+  list-style: none;
+  font-size: 0.7em;
+}
+
+.mmm-mystrom-icon {
+  width: 25px;
+  height: auto;
+  margin-right: 6px;
+  vertical-align: middle;
+  opacity: 0.9;
+}
+
+/*********************************************
+ * Light Mode
+ *********************************************/
+
+.mmm-mystrom-light {
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.mmm-mystrom-light .mmm-mystrom-device {
+  width: 100px;
+}
+
+.mmm-mystrom-light .mmm-mystrom-column.flex {
+  gap: 10px;
+}
+
+.mmm-mystrom-light .mmm-mystrom-inline {
+  grid-auto-columns: 100px;
+}
+
+.mmm-mystrom-light-top {
+  text-align: right;
+  top: 4px;
+  font-size: 0.7em;
+  opacity: 0.9;
+  min-width: 20px;
+  min-height: 12px;
+}
+
+.mmm-mystrom-light-icon {
+  width: 42px;
+  height: 42px;
+  margin: 1px auto 1px;
+  display: block;
+  object-fit: contain;
+  opacity: 0.95;
+}
+
+.mmm-mystrom-light-middle{
+  font-size: 0.6em;
+  margin-bottom: -20px;
+}
+
+.mmm-mystrom-light-name {
+  margin-top: 20px;
+  font-size: 0.8em;
+  font-weight: 400;
+}
+
+/*********************************************
+ * Region Alignment Compatibility
+ * (works with MagicMirror default CSS)
+ *********************************************/
+
+.region.left .mmm-mystrom-wrapper {
+  align-items: flex-start;
+}
+
+.region.center .mmm-mystrom-wrapper {
+  align-items: center;
+}
+
+.region.right .mmm-mystrom-wrapper {
+  align-items: flex-end;
+}

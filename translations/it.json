@@ -1,0 +1,23 @@
+{
+  "ROOM": "Stanza",
+  "NO_DEVICES_CONFIGURED": "Nessun dispositivo configurato.",
+  "ERROR_PREFIX": "Errore",
+  "LOADING": "Caricamento…",
+  "UPDATED": "Aggiornato",
+  "YES": "Sì",
+  "NO": "No",
+  "N_A": "n/d",
+  "MOTION": "Movimento",
+  "LIGHT": "Luce",
+  "TEMPERATURE": "Temperatura",
+  "RELAY": "Relè",
+  "POWER": "Potenza",
+  "ON_STATE": "Stato",
+  "COLOR": "Colore",
+  "ON": "Acceso",
+  "OFF": "Spento",
+  "ERROR_UNKNOWN": "Errore sconosciuto",
+  "DEVICE_TIMEOUT": "Timeout della richiesta",
+  "HTTP_ERROR": "HTTP",
+  "NO_RESPONSE": "Nessuna risposta dal dispositivo"
+}

@@ -1,0 +1,23 @@
+{
+  "ROOM": "Room",
+  "NO_DEVICES_CONFIGURED": "No devices configured.",
+  "ERROR_PREFIX": "Error",
+  "LOADING": "Loading…",
+  "UPDATED": "Updated",
+  "YES": "Yes",
+  "NO": "No",
+  "N_A": "n/a",
+  "MOTION": "Motion",
+  "LIGHT": "Light",
+  "TEMPERATURE": "Temperature",
+  "RELAY": "Relay",
+  "POWER": "Power",
+  "ON_STATE": "State",
+  "COLOR": "Color",
+  "ON": "On",
+  "OFF": "Off",
+  "ERROR_UNKNOWN": "Unknown error",
+  "DEVICE_TIMEOUT": "Request timed out",
+  "HTTP_ERROR": "HTTP",
+  "NO_RESPONSE": "No response"
+}

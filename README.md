@@ -1,34 +1,37 @@
-# MMM-Template
-Use this template for creating new MagicMirror² modules.
+# MMM-myStrom
+This is a module for the [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror).
+It displays status and data from [myStrom](https://mystrom.ch/) devices (PIR, Switch, Bulb).
 
-See the [wiki page](https://github.com/Dennis-Rosenbaum/MMM-Template/wiki) for an in depth overview of how to get started.
+# Features
+- Automatic device type detection (PIR / Switch / Bulb)
+    - PIR vlaues: Motion (YES/NO), Ambient light (lx), Room temperature (°C)
+    - Switch values: Relay ON/OFF, Power usage (W), Room temperature (°C)
+    - Bulb values: On/off state, Power, Light color
+- Multi-room layouts: `column` (hierarchical), `showRoomSideBySide`, `inline` (compact grid) and `light`
+- Per-type update interval settings
+- Error & loading handling
+- Multi-language support: i18n for EN, DE, FR, IT
 
-# MMM-Template
-
-*MMM-Template* is a module for [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror) that displays ... [Module description]
 
 ## Screenshot
+c
+![Example of MMM-Template](./screenshots/mystrom_inline.png)
 
-![Example of MMM-Template](./example_1.png)
+
+
+![Example of MMM-Template](./screenshots/mystrom_sidebyside.png)
+
 
 ## Installation
 
 ### Install
 
-In your terminal, go to the modules directory and clone the repository:
+To install this module, navigate into `~/MagicMirror/modules` and type the following commands:
 
 ```bash
-cd ~/MagicMirror/modules
-git clone [GitHub url]
-```
-
-### Update
-
-Go to the module directory and pull the latest changes:
-
-```bash
-cd ~/MagicMirror/modules/MMM-Template
-git pull
+git clone https://github.com/ch1ledbe/MMM-myStrom
+cd ~/MagicMirror/modules/MMM-myStrom
+npm install
 ```
 
 ## Configuration
@@ -41,8 +44,18 @@ Minimal configuration to use the module:
 
 ```js
     {
-        module: 'MMM-Template',
-        position: 'lower_third'
+        module: "MMM-myStrom",
+        position: "bottom_center",
+        config: {
+            devices: [
+                {
+                    room: "Room 1",
+                    devices: [
+                        { name: "Device 1", ip: "192.168.1.11" },
+                    ]
+                }
+            ]
+        }
     },
 ```
 
@@ -50,31 +63,48 @@ Configuration with all options:
 
 ```js
     {
-        module: 'MMM-Template',
-        position: 'lower_third',
+        module: "MMM-myStrom",
+        position: "bottom_center",
         config: {
-            exampleContent: 'Welcome world'
+            layout: "column",
+            showRoomSideBySide: false,
+            displayMode: "light",
+            PIRUpdateInterval: 30000,
+            SwitchUpdateInterval: 2000,
+            BulbUpdateInterval: 2000,
+            devices: [
+                {
+                    room: "Room 1",
+                    devices: [
+                        { name: "Device 1", ip: "192.168.1.11" },
+                        { name: "Device 2", ip: "192.168.1.12" }
+                    ]
+                },
+                {
+                    room: "Room 2",
+                    devices: [
+                        { name: "Device 1", ip: "192.168.1.14" },
+                        { name: "Device 2", ip: "192.168.1.15" },
+                        { name: "Device 3", ip: "192.168.1.16" }
+                    ]
+                }
+            ]
         }
     },
+
 ```
 
 ### Configuration options
 
-Option|Possible values|Default|Description
-------|------|------|-----------
-`exampleContent`|`string`|not available|The content to show on the page
-
-## Sending notifications to the module
-
-Notification|Description
-------|-----------
-`TEMPLATE_RANDOM_TEXT`|Payload must contain the text that needs to be shown on this module
-
-## Developer commands
-
-- `npm install` - Install devDependencies like ESLint.
-- `node --run lint` - Run linting and formatter checks.
-- `node --run lint:fix` - Fix linting and formatter issues.
+|Option|Possible values|Default|Description
+|------|------|------|-----------
+| `layout`|`"inline"`/`"column"`|`"column"`| Horizontal and vertical alignment
+| `showRoomSideBySide`|`"false"` / `"true"`|`"false"`| Shows rooms side by side in vertical alignmnet 
+| `displayMode`|`"light"`|not configured|*Optional* Simplified view of all devices
+| `PIRUpdateInterval`|`>=2000` (ms)|`30000` (ms) | Update interval for motion detectors (2 seconds and more recommended)
+| `SwitchUpdateInterval`|`>=2000` (ms)|`2000` (ms) | Update interval for switch devices (2 seconds and more recommended)
+| `BulbUpdateInterval`|`>=2000` (ms)|`2000` (ms) | Update interval for bulbs (2 seconds and more recommended)
+| `devices`|as many devices and rooms as you want|see sample configuration|You can add unlimited devices to each room and create as many rooms as you need.
 
 ## License
 

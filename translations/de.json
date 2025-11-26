@@ -1,0 +1,23 @@
+{
+  "ROOM": "Raum",
+  "NO_DEVICES_CONFIGURED": "Keine Geräte konfiguriert.",
+  "ERROR_PREFIX": "Fehler",
+  "LOADING": "Lade…",
+  "UPDATED": "Aktualisiert",
+  "YES": "Ja",
+  "NO": "Nein",
+  "N_A": "k. A.",
+  "MOTION": "Bewegung",
+  "LIGHT": "Licht",
+  "TEMPERATURE": "Temperatur",
+  "RELAY": "Relais",
+  "POWER": "Leistung",
+  "ON_STATE": "Status",
+  "COLOR": "Farbe",
+  "ON": "Ein",
+  "OFF": "Aus",
+  "ERROR_UNKNOWN": "Unbekannter Fehler",
+  "DEVICE_TIMEOUT": "Zeitüberschreitung",
+  "HTTP_ERROR": "HTTP",
+  "NO_RESPONSE": "Keine Antwort"
+}

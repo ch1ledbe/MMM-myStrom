@@ -1,0 +1,23 @@
+{
+  "ROOM": "Pièce",
+  "NO_DEVICES_CONFIGURED": "Aucun appareil configuré.",
+  "ERROR_PREFIX": "Erreur",
+  "LOADING": "Chargement…",
+  "UPDATED": "Mis à jour",
+  "YES": "Oui",
+  "NO": "Non",
+  "N_A": "n.d.",
+  "MOTION": "Mouvement",
+  "LIGHT": "Lumière",
+  "TEMPERATURE": "Température",
+  "RELAY": "Relais",
+  "POWER": "Puissance",
+  "ON_STATE": "État",
+  "COLOR": "Couleur",
+  "ON": "Marche",
+  "OFF": "Arrêt",
+  "ERROR_UNKNOWN": "Erreur inconnue",
+  "DEVICE_TIMEOUT": "Délai dépassé",
+  "HTTP_ERROR": "HTTP",
+  "NO_RESPONSE": "Aucune réponse"
+}
