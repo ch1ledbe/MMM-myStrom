@@ -31,6 +31,15 @@ function t(key) {
   return translations[key] || key;
 }
 
+// Nodemailer v7 no longer includes built-in SMTP transport.
+// We load it dynamically only if needed.
+let smtpTransport = null;
+try {
+  smtpTransport = require("nodemailer-smtp-transport");
+} catch (e) {
+  // Not installed → Nodemailer 6 mode (built-in SMTP)
+}
+
 module.exports = NodeHelper.create({
   start() {
     console.log("[MMM-myStrom] node_helper start");
@@ -40,6 +49,7 @@ module.exports = NodeHelper.create({
     this.timeoutMs = 4000;
     loadTranslations();
     console.log("[MMM-myStrom] Node helper started with language translations");
+    this.transporter = null;
   },
 
   stop() {
@@ -53,6 +63,7 @@ module.exports = NodeHelper.create({
       this.rooms = payload.rooms || [];
       this.timeoutMs = payload.timeoutMs || 4000;
       this.emailAlert = payload.emailAlert || { enabled: false };
+      this.setupEmailTransport();
 
       this.devices = [];
       for (const room of this.rooms) {
@@ -83,72 +94,94 @@ module.exports = NodeHelper.create({
   },
 
   /* ---------------------------------------------------------------
-   *  Send alert email
-   * --------------------------------------------------------------- */
-  async sendEmailAlert(alert) {
-    if (!this.emailAlert || !this.emailAlert.enabled) {
-      return; // email alerts disabled
-    }
+  *  EMAIL SUPPORT — Nodemailer 6.x + 7.x Compatible
+  * --------------------------------------------------------------- */
 
+  setupEmailTransport() {
     const cfg = this.emailAlert;
 
-    // Validate config
-    if (!cfg.smtp?.host || !cfg.smtp?.auth?.user || !cfg.smtp?.auth?.pass) {
-      console.error("[MMM-myStrom] Email alert missing SMTP configuration");
+    if (!cfg || !cfg.enabled) {
+      console.log("[MMM-myStrom] Email disabled");
       return;
     }
 
-    if (!cfg.from || !cfg.to) {
-      console.error("[MMM-myStrom] Email alert missing 'from' or 'to' address");
+    if (!cfg.smtp || !cfg.smtp.host) {
+      console.error("[MMM-myStrom] Missing SMTP config");
       return;
     }
 
     try {
-      const transporter = nodemailer.createTransport({
-        host: cfg.smtp.host,
-        port: cfg.smtp.port,
-        secure: cfg.smtp.secure,
-        auth: {
-          user: cfg.smtp.auth.user,
-          pass: cfg.smtp.auth.pass
-        }
-      });
-
-      const subjectKey = {
-        "OFFON": "EMAIL_SUBJECT_ON",
-        "ONOFF": "EMAIL_SUBJECT_OFF",
-        "POWER": "EMAIL_SUBJECT_POWER",
-        "POWER_NORMAL": "EMAIL_SUBJECT_POWER_NORMAL",
-        "PIR_CLEAR": "EMAIL_SUBJECT_PIR_CLEAR"
-      }[alert.alertType] || "EMAIL_ALERT_TYPE";
-
-      const subject = `${t(subjectKey)} - ${alert.name || alert.ip}`;
-
-      let text = "";
-      text += `${t("EMAIL_DEVICE")}: ${alert.name || alert.ip}\n`;
-      text += `${t("EMAIL_TYPE")}: ${alert.type}\n`;
-
-      if (alert.room) text += `${t("EMAIL_ROOM")}: ${alert.room}\n`;
-      if (alert.power !== undefined) text += `${t("EMAIL_POWER")}: ${alert.power} W\n`;
-      if (alert.threshold !== undefined) text += `${t("EMAIL_THRESHOLD")}: ${alert.threshold} W\n`;
-
-      text += `${t("EMAIL_ALERT_TYPE")}: ${alert.alertType}\n`;
-      text += `${t("EMAIL_TIME")}: ${new Date().toLocaleString()}\n`;
-
-      await transporter.sendMail({
-        from: cfg.from,
-        to: cfg.to,
-        subject: subject,
-        text: text
-      });
-
-      console.log("[MMM-myStrom] Email alert sent:", subject);
-
-    } catch (err) {
-      console.error("[MMM-myStrom] Email send failed:", err);
+      if (smtpTransport) {
+        // Nodemailer 7 mode (no built-in SMTP)
+        this.transporter = nodemailer.createTransport(
+          smtpTransport(cfg.smtp)
+        );
+        console.log("[MMM-myStrom] Email transport initialized (Nodemailer 7)");
+      } else {
+        // Nodemailer 6 mode
+        this.transporter = nodemailer.createTransport(cfg.smtp);
+        console.log("[MMM-myStrom] Email transport initialized (Nodemailer 6)");
+      }
+    } catch (e) {
+      console.error("[MMM-myStrom] Failed to initialize transporter:", e);
+      this.transporter = null;
     }
   },
 
+  async sendEmailAlert(alert) {
+    const cfg = this.emailAlert;
+
+    if (!cfg?.enabled) {
+      console.log("[MMM-myStrom] Email disabled (alert skipped)");
+      return;
+    }
+
+    if (!this.transporter) {
+      console.error("[MMM-myStrom] Email transporter not set up — calling setupEmailTransport()");
+      this.setupEmailTransport();
+      if (!this.transporter) {
+        console.error("[MMM-myStrom] Still no transporter, aborting email");
+        return;
+      }
+    }
+
+    if (!cfg.from || !cfg.to) {
+      console.error("[MMM-myStrom] Missing 'from' or 'to' email fields");
+      return;
+    }
+
+    const subjectKey = {
+      "OFFON": "EMAIL_SUBJECT_ON",
+      "ONOFF": "EMAIL_SUBJECT_OFF",
+      "POWER": "EMAIL_SUBJECT_POWER",
+      "POWER_NORMAL": "EMAIL_SUBJECT_POWER_NORMAL",
+      "PIR_CLEAR": "EMAIL_SUBJECT_PIR_CLEAR"
+    }[alert.alertType] || "EMAIL_ALERT_TYPE";
+
+    const subject = `${t(subjectKey)} - ${alert.name || alert.ip}`;
+
+    let text = "";
+    text += `${t("EMAIL_DEVICE")}: ${alert.name || alert.ip}\n`;
+    text += `${t("EMAIL_TYPE")}: ${alert.type}\n`;
+    if (alert.room) text += `${t("EMAIL_ROOM")}: ${alert.room}\n`;
+    if (alert.power !== undefined) text += `${t("EMAIL_POWER")}: ${alert.power} W\n`;
+    if (alert.threshold !== undefined) text += `${t("EMAIL_THRESHOLD")}: ${alert.threshold} W\n`;
+    text += `${t("EMAIL_ALERT_TYPE")}: ${alert.alertType}\n`;
+    text += `${t("EMAIL_TIME")}: ${new Date().toLocaleString()}\n`;
+
+    try {
+      await this.transporter.sendMail({
+        from: cfg.from,
+        to: cfg.to,
+        subject,
+        text
+      });
+
+      console.log("[MMM-myStrom] Email sent:", subject);
+    } catch (err) {
+      console.error("[MMM-myStrom] Email send error:", err);
+    }
+  },
   /* Allow per-device email alert enable/disable */
   deviceEmailEnabled(dev) {
     if (typeof dev.email === "boolean") return dev.email;
