@@ -1,11 +1,21 @@
 {
   "name": "MMM-myStrom",
-  "version": "1.0.0",
-  "description": "MagicMirror² module to display data from myStrom devices (PIR, Switch, Bulb)",
+  "version": "1.1.0",
+  "description": "MMM-myStrom is a MagicMirror² module for monitoring myStrom smart home devices (Switch, Bulb, PIR).",
   "main": "MMM-myStrom.js",
   "license": "MIT",
+  "author": "Bernie",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ch1ledbe/MMM-myStrom.git"
+  },
   "dependencies": {
     "axios": "^1.7.2",
-    "node-fetch": "2"
+    "node-fetch": "2",
+    "nodemailer": "^6.9.8"
+  },
+  "scripts": {
+    "upgrade": "git pull --rebase && npm install",
+    "postinstall": "echo 'MMM-myStrom dependencies installed.'"
   }
 }

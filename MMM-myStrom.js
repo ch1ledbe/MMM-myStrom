@@ -7,16 +7,79 @@ Module.register("MMM-myStrom", {
   defaults: {
     layout: "column", // "inline" | "column"
     showRoomSideBySide: false, //  "false" | "true" put rooms side-by-side
-    PIRUpdateInterval: 30_000,
-    SwitchUpdateInterval: 2_000,
-    BulbUpdateInterval: 2_000,
+    PIRUpdateInterval: 10000,
+    SwitchUpdateInterval: 2000,
+    BulbUpdateInterval: 2000,
     timeoutMs: 4000,
     devices: [
       // Example structure
-      // { room: "Living Room", devices: [ { name: "PIR 1", ip: "192.168.1.10" }, { name: "Switch A", ip: "192.168.1.20" } ] }
+      // { room: "Living Room", devices: [ { name: "PIR 1", ip: "192.168.1.10", alert: true, alertFile: "alert1.mp3" }, { name: "Switch A", ip: "192.168.1.20", alert: false } ] }
     ],
     showTitle: true,
-    titleText: "myStrom",
+    titleText: "MMM-myStrom",
+
+    // ALERT SYSTEM
+    alertEnabled: true,   // global master switch
+
+    // Alert sounds per device type ON/OFF
+    defaultAlertOffOn: false,
+    defaultAlertOnOff: false,
+
+    alertFiles: {
+      PIR: "alert1.mp3",
+      SWITCH: "alert2.mp3",
+      BULB: "alert3.mp3"
+    },
+
+    alertFilesOff: {
+      PIR: "alert1.mp3",
+      SWITCH: "alert2.mp3",
+      BULB: "alert3.mp3"
+    },
+
+    // Alert sounds per device type POWER
+    defaultAlertPower: true,
+    defaultAlertPowerNormal: false,
+    powerThresholds: {
+        SWITCH: 100,
+        BULB: 4 
+    },
+    alertFilesPower: {
+      SWITCH: "power1.mp3",
+      BULB: "power2.mp3"
+    },
+
+    alertFilesPowerNormal: {
+      SWITCH: "power1.mp3",
+      BULB: "power2.mp3"
+    },
+
+    // Alert sound for motion clear (PIR)
+    defaultAlertMotionClear: false,
+    alertFilesPirClear: {
+      PIR: "alert1.mp3"
+    },
+
+    // General email alert settings
+    emailAlert: {
+      enabled: false,
+      // You must configure all of these in config.js
+      smtp: {
+        host: "",
+        port: 587,
+        secure: false,     // true for port 465, false for 587
+        auth: {
+          user: "",
+          pass: ""
+        }
+      },
+      from: "",     // Email sender
+      to: ""        // Email recipient(s), comma-separated allowed
+    },
+
+    // Default per-device email alert disable
+    email: false,
+
   },
 
   requiresVersion: "2.20.0",
@@ -25,6 +88,9 @@ Module.register("MMM-myStrom", {
     this.rooms = []; // normalized devices [{room, devices:[{name, ip, type, last, error}]}]
     this.dataByIP = {}; // { ip: { type, values, ts, error, name, room } }
     this.loaded = false;
+
+    // Alert - track last ON/OFF state
+    this.lastAlertStates = {};  // { ip: boolean }
 
     // Normalize user's devices array (supports legacy flat keys deviceName1/deviceIP1 ...)
     this.rooms = this.normalizeDevices(this.config.devices || []);
@@ -35,6 +101,7 @@ Module.register("MMM-myStrom", {
       SwitchUpdateInterval: this.config.SwitchUpdateInterval,
       BulbUpdateInterval: this.config.BulbUpdateInterval,
       timeoutMs: this.config.timeoutMs,
+      emailAlert: this.config.emailAlert || {}
     });
   },
 
@@ -206,7 +273,7 @@ Module.register("MMM-myStrom", {
 		const isOn = (state && state.values)
 		  ? ((state.type === "SWITCH" && state.values.relay) || (state.type === "BULB" && state.values.on) || (state.type === "PIR" && state.values.motion))
 		  : false;
-
+    
 		if (isOn) {
 		  card.classList.add("mmm-mystrom-device-on");
 		} else {
@@ -459,14 +526,203 @@ Module.register("MMM-myStrom", {
     if (notification === "MMM_MYStrom_DATA") {
       // payload: { ip, type, values, ts, error, name, room }
       this.dataByIP[payload.ip] = payload;
+      this.processAlert(payload);
       this.updateDom(0);
     } else if (notification === "MMM_MYStrom_BULK") {
       // payload: array of the above
       for (const itm of payload) {
         this.dataByIP[itm.ip] = itm;
+        this.processAlert(itm);
       }
       this.updateDom(0);
     }
+  },
+
+  processAlert(state) {
+    if (!this.config.alertEnabled || !state || !state.values) return;
+
+    const ip = state.ip;
+    const dev = this.findDeviceByIP(ip);
+    if (!dev) return;
+
+    //
+    // Resolve settings per device
+    //
+    const alertOffOn =
+      typeof dev.alertOffOn === "boolean" ? dev.alertOffOn : this.config.defaultAlertOffOn;
+
+    const alertOnOff =
+      typeof dev.alertOnOff === "boolean" ? dev.alertOnOff : this.config.defaultAlertOnOff;
+
+    const alertPower =
+      typeof dev.alertPower === "boolean" ? dev.alertPower : this.config.defaultAlertPower;
+
+    const alertPowerNormal =
+      typeof dev.alertPowerNormal === "boolean" ? dev.alertPowerNormal : this.config.defaultAlertPowerNormal;
+
+    const alertMotionClear =
+      typeof dev.alertMotionClear === "boolean" ? dev.alertMotionClear : this.config.defaultAlertMotionClear;
+
+    //
+    // Determine ON/OFF state
+    //
+    const isOn =
+      (state.type === "SWITCH" && state.values.relay) ||
+      (state.type === "BULB" && state.values.on) ||
+      (state.type === "PIR" && state.values.motion);
+
+    const prev = this.lastAlertStates[ip] || false;
+
+    //
+    // 🔔 ON → OFF alert
+    //
+    if (alertOnOff && prev && !isOn) {
+      console.log("[MMM-myStrom] OFF ALERT:", state);
+
+      const payload = {
+        ip: state.ip,
+        type: state.type,
+        name: state.name,
+        room: state.room,
+        alertFile: dev.alertFilesOff || null,
+        alertType: "ONOFF"
+      };
+
+      if (this.deviceEmailEnabled(dev)) {
+        this.sendSocketNotification("MMM_MYStrom_EMAIL_ALERT", payload);
+      }
+      this.playAlertSound(payload);
+
+    }
+
+    //
+    // 🔔 OFF → ON alert
+    //
+    if (alertOffOn && !prev && isOn) {
+      console.log("[MMM-myStrom] ON ALERT:", state);
+
+      const payload = {
+        ip: state.ip,
+        type: state.type,
+        name: state.name,
+        room: state.room,
+        alertFile: dev.alertFile || null,
+        alertType: "OffOn"
+      };
+
+      if (this.deviceEmailEnabled(dev)) {
+        this.sendSocketNotification("MMM_MYStrom_EMAIL_ALERT", payload);
+      }
+      this.playAlertSound(payload);
+    }
+
+    this.lastAlertStates[ip] = isOn;
+
+    //
+    // ⚡ POWER ALERT LOGIC
+    //
+    if (alertPower || alertPowerNormal) {
+      const threshold =
+        dev.powerThreshold ??
+        this.config.powerThresholds[state.type] ??
+        null;
+
+      if (threshold !== null && state.values.power !== undefined) {
+        const power = Number(state.values.power);
+
+        if (!this.lastPowerExceedStates) this.lastPowerExceedStates = {};
+        const lastExceed = this.lastPowerExceedStates[ip] || false;
+        const nowExceed = power >= threshold;
+
+        //
+        // ⚡ POWER SPIKE ALERT (existing)
+        //
+        if (alertPower && !lastExceed && nowExceed) {
+          console.log(`[MMM-myStrom] POWER ALERT: ${power}W >= ${threshold}W`, state);
+
+          const payload = {
+            ip: state.ip,
+            type: state.type,
+            name: state.name,
+            room: state.room,
+            alertFile: dev.alertFile || null,
+            alertType: "POWER",
+            power: power,
+            threshold: threshold
+          };
+
+          if (this.deviceEmailEnabled(dev)) {
+            this.sendSocketNotification("MMM_MYStrom_EMAIL_ALERT", payload);
+          }
+          this.playAlertSound(payload);
+
+        }
+
+        //
+        // 🔋 POWER NORMAL ALERT
+        //
+        if (alertPowerNormal && lastExceed && !nowExceed) {
+          console.log(`[MMM-myStrom] POWER NORMAL: ${power}W < ${threshold}W`, state);
+
+          const payload = {
+            ip: state.ip,
+            type: state.type,
+            name: state.name,
+            room: state.room,
+            alertFile: dev.alertFile || null,
+            alertType: "POWER_NORMAL"
+          };
+
+          if (this.deviceEmailEnabled(dev)) {
+            this.sendSocketNotification("MMM_MYStrom_EMAIL_ALERT", payload);
+          }
+          this.playAlertSound(payload);
+
+        }
+
+        this.lastPowerExceedStates[ip] = nowExceed;
+      }
+    }
+
+    //
+    // 👋 MOTION CLEAR ALERT (PIR only)
+    //
+    if (state.type === "PIR" && alertMotionClear) {
+      const motion = !!state.values.motion;
+
+      if (!this.lastMotionState) this.lastMotionState = {};
+      const lastMotion = this.lastMotionState[ip] || false;
+
+      if (lastMotion && !motion) {
+        console.log("[MMM-myStrom] MOTION CLEAR:", state);
+
+        const payload = {
+          ip: state.ip,
+          type: state.type,
+          name: state.name,
+          room: state.room,
+          alertFile: dev.alertFilesPirClear || null,
+          alertType: "PIR_CLEAR"
+        };
+
+        if (this.deviceEmailEnabled(dev)) {
+          this.sendSocketNotification("MMM_MYStrom_EMAIL_ALERT", payload);
+        }
+        this.playAlertSound(payload);
+        
+      }
+
+      this.lastMotionState[ip] = motion;
+    }
+  },
+
+  findDeviceByIP(ip) {
+    for (const room of this.rooms) {
+      for (const d of room.devices) {
+        if (d.ip === ip) return d;
+      }
+    }
+    return null;
   },
 
   getDeviceIcon(type) {
@@ -478,4 +734,103 @@ Module.register("MMM-myStrom", {
     }
   },
 
+  playAlertSound(deviceInfo) {
+    console.log("[MMM-myStrom] playAlertSound called:", deviceInfo);
+
+    const type = deviceInfo.type;
+    const alertType = deviceInfo.alertType;
+
+    //
+    // 1. DEVICE-SPECIFIC SOUND ALWAYS WINS
+    //
+    if (deviceInfo.alertFile) {
+      const path = this.file("sounds/" + deviceInfo.alertFile);
+      console.log("[MMM-myStrom] Using device-specific file:", path);
+      this._playSound(path, deviceInfo);
+      return;
+    }
+
+    //
+    // 2. ALERT-TYPE-BASED SOUND SELECTION
+    //
+
+    // --- ON ALERT ---
+    if (alertType === "OffOn") {
+      const file = this.config.alertFiles?.[type];
+      if (file) {
+        const path = this.file("sounds/" + file);
+        console.log("[MMM-myStrom] Using OffOn file:", path);
+        this._playSound(path, deviceInfo);
+        return;
+      }
+    }
+
+    // --- OFF ALERT ---
+    if (alertType === "ONOFF") {
+      const file = this.config.alertFilesOff?.[type] || this.config.alertFiles?.[type];
+      if (file) {
+        const path = this.file("sounds/" + file);
+        console.log("[MMM-myStrom] Using ONOFF file:", path);
+        this._playSound(path, deviceInfo);
+        return;
+      }
+    }
+
+    // --- POWER HIGH ALERT ---
+    if (alertType === "POWER") {
+      const file = this.config.alertFilesPower?.[type];
+      if (file) {
+        const path = this.file("sounds/" + file);
+        console.log("[MMM-myStrom] Using POWER HIGH file:", path);
+        this._playSound(path, deviceInfo);
+        return;
+      }
+    }
+
+    // --- POWER NORMAL ALERT ---
+    if (alertType === "POWER_NORMAL") {
+      const file = this.config.alertFilesPowerNormal?.[type] || this.config.alertFilesPower?.[type];
+      if (file) {
+        const path = this.file("sounds/" + file);
+        console.log("[MMM-myStrom] Using POWER NORMAL file:", path);
+        this._playSound(path, deviceInfo);
+        return;
+      }
+    }
+
+    // --- PIR MOTION CLEAR ---
+    if (alertType === "PIR_CLEAR") {
+      const file = this.config.alertFilesPirClear?.[type] || this.config.alertFiles?.PIR;
+      if (file) {
+        const path = this.file("sounds/" + file);
+        console.log("[MMM-myStrom] Using PIR_CLEAR file:", path);
+        this._playSound(path, deviceInfo);
+        return;
+      }
+    }
+
+    console.warn(
+      "[MMM-myStrom] No matching sound for alertType:",
+      alertType,
+      "device type:",
+      type
+    );
+  },
+
+  _playSound(path, deviceInfo) {
+    console.log("[MMM-myStrom] Playing:", path, "for:", deviceInfo);
+    const audio = new Audio(path);
+    audio.volume = 1.0;
+    audio.play().catch(err => {
+      console.warn("[MMM-myStrom] Audio playback failed:", err);
+    });
+  },
+
+  deviceEmailEnabled(dev) {
+    if (typeof dev.email === "boolean") {
+      return dev.email;
+    }
+    return this.config.defaultEmailAlert;
+  },
+  
 });

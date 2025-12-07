@@ -19,5 +19,17 @@
   "ERROR_UNKNOWN": "Unknown error",
   "DEVICE_TIMEOUT": "Request timed out",
   "HTTP_ERROR": "HTTP",
-  "NO_RESPONSE": "No response"
+  "NO_RESPONSE": "No response",
+  "EMAIL_SUBJECT_ON": "Device turned ON",
+  "EMAIL_SUBJECT_OFF": "Device turned OFF",
+  "EMAIL_SUBJECT_POWER": "Power threshold exceeded",
+  "EMAIL_SUBJECT_POWER_NORMAL": "Power back to normal",
+  "EMAIL_SUBJECT_PIR_CLEAR": "Motion cleared",
+  "EMAIL_DEVICE": "Device",
+  "EMAIL_TYPE": "Type",
+  "EMAIL_ROOM": "Room",
+  "EMAIL_POWER": "Power",
+  "EMAIL_THRESHOLD": "Threshold",
+  "EMAIL_ALERT_TYPE": "Alert type",
+  "EMAIL_TIME": "Time"
 }

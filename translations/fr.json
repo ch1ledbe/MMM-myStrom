@@ -19,5 +19,17 @@
   "ERROR_UNKNOWN": "Erreur inconnue",
   "DEVICE_TIMEOUT": "Délai dépassé",
   "HTTP_ERROR": "HTTP",
-  "NO_RESPONSE": "Aucune réponse"
+  "NO_RESPONSE": "Aucune réponse",
+  "EMAIL_SUBJECT_ON": "Appareil allumé",
+  "EMAIL_SUBJECT_OFF": "Appareil éteint",
+  "EMAIL_SUBJECT_POWER": "Seuil de puissance dépassé",
+  "EMAIL_SUBJECT_POWER_NORMAL": "Puissance redevenue normale",
+  "EMAIL_SUBJECT_PIR_CLEAR": "Mouvement terminé",
+  "EMAIL_DEVICE": "Appareil",
+  "EMAIL_TYPE": "Type",
+  "EMAIL_ROOM": "Pièce",
+  "EMAIL_POWER": "Puissance",
+  "EMAIL_THRESHOLD": "Seuil",
+  "EMAIL_ALERT_TYPE": "Type d’alerte",
+  "EMAIL_TIME": "Heure"
 }

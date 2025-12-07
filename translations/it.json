@@ -19,5 +19,17 @@
   "ERROR_UNKNOWN": "Errore sconosciuto",
   "DEVICE_TIMEOUT": "Timeout della richiesta",
   "HTTP_ERROR": "HTTP",
-  "NO_RESPONSE": "Nessuna risposta dal dispositivo"
+  "NO_RESPONSE": "Nessuna risposta dal dispositivo",
+  "EMAIL_SUBJECT_ON": "Dispositivo acceso",
+  "EMAIL_SUBJECT_OFF": "Dispositivo spento",
+  "EMAIL_SUBJECT_POWER": "Soglia di potenza superata",
+  "EMAIL_SUBJECT_POWER_NORMAL": "Potenza tornata normale",
+  "EMAIL_SUBJECT_PIR_CLEAR": "Movimento terminato",
+  "EMAIL_DEVICE": "Dispositivo",
+  "EMAIL_TYPE": "Tipo",
+  "EMAIL_ROOM": "Stanza",
+  "EMAIL_POWER": "Potenza",
+  "EMAIL_THRESHOLD": "Soglia",
+  "EMAIL_ALERT_TYPE": "Tipo di avviso",
+  "EMAIL_TIME": "Ora"
 }

@@ -7,6 +7,29 @@
 
 const NodeHelper = require("node_helper");
 const axios = require("axios");
+const nodemailer = require("nodemailer");
+
+const fs = require("fs");
+const path = require("path");
+
+
+// Load translations
+let translations = {};
+
+function loadTranslations() {
+  const lang = (global.config.language || "en").toLowerCase();
+  const file = path.resolve(__dirname, "translations", `${lang}.json`);
+
+  if (fs.existsSync(file)) {
+    translations = JSON.parse(fs.readFileSync(file, "utf8"));
+  } else {
+    translations = JSON.parse(fs.readFileSync(path.resolve(__dirname, "translations/en.json"), "utf8"));
+  }
+}
+
+function t(key) {
+  return translations[key] || key;
+}
 
 module.exports = NodeHelper.create({
   start() {
@@ -15,6 +38,8 @@ module.exports = NodeHelper.create({
     this.devices = []; // flat list: { room, name, ip, type }
     this.timers = {};
     this.timeoutMs = 4000;
+    loadTranslations();
+    console.log("[MMM-myStrom] Node helper started with language translations");
   },
 
   stop() {
@@ -27,6 +52,7 @@ module.exports = NodeHelper.create({
       console.log("[MMM-myStrom] received CONFIG");
       this.rooms = payload.rooms || [];
       this.timeoutMs = payload.timeoutMs || 4000;
+      this.emailAlert = payload.emailAlert || { enabled: false };
 
       this.devices = [];
       for (const room of this.rooms) {
@@ -39,7 +65,96 @@ module.exports = NodeHelper.create({
       // Instead, we set up polling for ALL devices and dynamically detect type
       this.setupPolling(payload);
     }
+
+    else if (notification === "MMM_MYStrom_EMAIL_ALERT") {
+      this.sendEmailAlert(payload);
+    }
   },
+
+  /* ---------------------------------------------------------------
+   *  Play alert sound
+   * --------------------------------------------------------------- */
+  _playSound(path) {
+    const audio = new Audio(path);
+    audio.volume = 100.0;
+    audio.play().catch(err => {
+      console.warn("[MMM-myStrom] Audio playback failed:", err);
+    });
+  },
+
+  /* ---------------------------------------------------------------
+   *  Send alert email
+   * --------------------------------------------------------------- */
+  async sendEmailAlert(alert) {
+    if (!this.emailAlert || !this.emailAlert.enabled) {
+      return; // email alerts disabled
+    }
+
+    const cfg = this.emailAlert;
+
+    // Validate config
+    if (!cfg.smtp?.host || !cfg.smtp?.auth?.user || !cfg.smtp?.auth?.pass) {
+      console.error("[MMM-myStrom] Email alert missing SMTP configuration");
+      return;
+    }
+
+    if (!cfg.from || !cfg.to) {
+      console.error("[MMM-myStrom] Email alert missing 'from' or 'to' address");
+      return;
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: cfg.smtp.host,
+        port: cfg.smtp.port,
+        secure: cfg.smtp.secure,
+        auth: {
+          user: cfg.smtp.auth.user,
+          pass: cfg.smtp.auth.pass
+        }
+      });
+
+      const subjectKey = {
+        "OFFON": "EMAIL_SUBJECT_ON",
+        "ONOFF": "EMAIL_SUBJECT_OFF",
+        "POWER": "EMAIL_SUBJECT_POWER",
+        "POWER_NORMAL": "EMAIL_SUBJECT_POWER_NORMAL",
+        "PIR_CLEAR": "EMAIL_SUBJECT_PIR_CLEAR"
+      }[alert.alertType] || "EMAIL_ALERT_TYPE";
+
+      const subject = `${t(subjectKey)} - ${alert.name || alert.ip}`;
+
+      let text = "";
+      text += `${t("EMAIL_DEVICE")}: ${alert.name || alert.ip}\n`;
+      text += `${t("EMAIL_TYPE")}: ${alert.type}\n`;
+
+      if (alert.room) text += `${t("EMAIL_ROOM")}: ${alert.room}\n`;
+      if (alert.power !== undefined) text += `${t("EMAIL_POWER")}: ${alert.power} W\n`;
+      if (alert.threshold !== undefined) text += `${t("EMAIL_THRESHOLD")}: ${alert.threshold} W\n`;
+
+      text += `${t("EMAIL_ALERT_TYPE")}: ${alert.alertType}\n`;
+      text += `${t("EMAIL_TIME")}: ${new Date().toLocaleString()}\n`;
+
+      await transporter.sendMail({
+        from: cfg.from,
+        to: cfg.to,
+        subject: subject,
+        text: text
+      });
+
+      console.log("[MMM-myStrom] Email alert sent:", subject);
+
+    } catch (err) {
+      console.error("[MMM-myStrom] Email send failed:", err);
+    }
+  },
+
+  /* Allow per-device email alert enable/disable */
+  deviceEmailEnabled(dev) {
+    if (typeof dev.email === "boolean") return dev.email;
+    return this.config.defaultEmailAlert;
+  },
+
 
   /* ---------------------------------------------------------------
    *  Poll ALL devices. Type is detected on demand.
