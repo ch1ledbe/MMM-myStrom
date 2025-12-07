@@ -19,5 +19,17 @@
   "ERROR_UNKNOWN": "Unbekannter Fehler",
   "DEVICE_TIMEOUT": "Zeitüberschreitung",
   "HTTP_ERROR": "HTTP",
-  "NO_RESPONSE": "Keine Antwort"
+  "NO_RESPONSE": "Keine Antwort",
+  "EMAIL_SUBJECT_ON": "Gerät eingeschaltet",
+  "EMAIL_SUBJECT_OFF": "Gerät ausgeschaltet",
+  "EMAIL_SUBJECT_POWER": "Leistungsschwelle überschritten",
+  "EMAIL_SUBJECT_POWER_NORMAL": "Leistung wieder normal",
+  "EMAIL_SUBJECT_PIR_CLEAR": "Bewegung beendet",
+  "EMAIL_DEVICE": "Gerät",
+  "EMAIL_TYPE": "Typ",
+  "EMAIL_ROOM": "Raum",
+  "EMAIL_POWER": "Leistung",
+  "EMAIL_THRESHOLD": "Schwellenwert",
+  "EMAIL_ALERT_TYPE": "Alarmtyp",
+  "EMAIL_TIME": "Zeit"
 }

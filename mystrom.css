@@ -9,8 +9,7 @@
 .mmm-mystrom-wrapper {
   display: flex;
   flex-direction: column;
-  padding-top: 20px;
-  box-sizing: border-box;
+  box-sizing: content-box;
 }
 
 /*********************************************
@@ -21,8 +20,7 @@
   display: block;
   text-align: center;
   font-family: "Nunito", "Poppins", "Montserrat", sans-serif;
-  font-weight: 600;
-  font-size: 1em;
+  font-size: 0.7em;
   color: #00B894;
   padding-bottom: 6px;
   margin: 0 auto;
@@ -101,14 +99,14 @@
 
 .mmm-mystrom-room-title {
   margin: 6px 0;
-  font-weight: 600;
+  font-weight: 400;
   color: #00B894;
   text-align: left;
 }
 
 .mmm-mystrom-room-badge { 
   margin-bottom: 4px;
-  font-size: 0.7rem;
+  font-size: 0.6em;
   color: #00B894;
   opacity: 0.8;
 }
@@ -123,7 +121,7 @@
   text-align: left;
   overflow: hidden;
   border-radius: 6px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.1);
   width: 130px;
 }
 
@@ -211,10 +209,22 @@
   align-items: flex-start;
 }
 
+.region.left .mmm-mystrom-title {
+  text-align: left;
+}
+
 .region.center .mmm-mystrom-wrapper {
   align-items: center;
 }
 
+.region.center .mmm-mystrom-title {
+ text-align: center;
+}
+
 .region.right .mmm-mystrom-wrapper {
   align-items: flex-end;
+}
+
+.region.right .mmm-mystrom-title {
+  text-align: right;
 }
