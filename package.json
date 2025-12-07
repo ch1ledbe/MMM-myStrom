@@ -1,6 +1,6 @@
 {
   "name": "MMM-myStrom",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MMM-myStrom is a MagicMirror² module for monitoring myStrom smart home devices (Switch, Bulb, PIR).",
   "main": "MMM-myStrom.js",
   "license": "MIT",
@@ -12,10 +12,10 @@
   "dependencies": {
     "axios": "^1.7.2",
     "node-fetch": "2",
-    "nodemailer": "^6.9.8"
+    "nodemailer": "^7.0.11",
+    "nodemailer-smtp-transport": "^2.7.4"
   },
   "scripts": {
-    "upgrade": "git pull --rebase && npm install",
-    "postinstall": "echo 'MMM-myStrom dependencies installed.'"
+    "upgrade": "BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@.*/@@') && git fetch --all && git reset --hard origin/$BRANCH && git clean -fd && npm install"
   }
 }
