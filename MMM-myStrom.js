@@ -38,7 +38,7 @@ Module.register("MMM-myStrom", {
     },
 
     // Alert sounds per device type POWER
-    defaultAlertPower: true,
+    defaultAlertPower: false,
     defaultAlertPowerNormal: false,
     powerThresholds: {
         SWITCH: 100,
