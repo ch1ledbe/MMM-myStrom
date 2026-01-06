@@ -31,15 +31,6 @@ function t(key) {
   return translations[key] || key;
 }
 
-// Nodemailer v7 no longer includes built-in SMTP transport.
-// We load it dynamically only if needed.
-let smtpTransport = null;
-try {
-  smtpTransport = require("nodemailer-smtp-transport");
-} catch (e) {
-  // Not installed → Nodemailer 6 mode (built-in SMTP)
-}
-
 module.exports = NodeHelper.create({
   start() {
     console.log("[MMM-myStrom] node_helper start");
@@ -111,17 +102,20 @@ module.exports = NodeHelper.create({
     }
 
     try {
-      if (smtpTransport) {
-        // Nodemailer 7 mode (no built-in SMTP)
-        this.transporter = nodemailer.createTransport(
-          smtpTransport(cfg.smtp)
-        );
-        console.log("[MMM-myStrom] Email transport initialized (Nodemailer 7)");
-      } else {
-        // Nodemailer 6 mode
-        this.transporter = nodemailer.createTransport(cfg.smtp);
-        console.log("[MMM-myStrom] Email transport initialized (Nodemailer 6)");
-      }
+      this.transporter = nodemailer.createTransport({
+        host: cfg.smtp.host,
+        port: cfg.smtp.port || 587,
+        secure: cfg.smtp.secure || false, // true for 465
+        auth: cfg.smtp.auth
+          ? {
+              user: cfg.smtp.auth.user,
+              pass: cfg.smtp.auth.pass
+            }
+          : undefined
+      });
+
+      console.log("[MMM-myStrom] Email transport initialized (Nodemailer native SMTP)");
+      
     } catch (e) {
       console.error("[MMM-myStrom] Failed to initialize transporter:", e);
       this.transporter = null;
