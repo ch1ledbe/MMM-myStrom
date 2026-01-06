@@ -199,7 +199,7 @@ Configuration with all options:
 | `alertPower`|`"false"` / `"true"`|`"false"`| This enables or disables alerts for power activities.
 | `alertPowerNormal`|`"false"` / `"true"`|`"false"`| It triggers an alert if the power drops below the threshold again.
 | `powerThreshold`|`>0` (W)|SWITCH: 100 W, BULB: 4 W| Triggers an alert when this threshold is reached.
-| `email`|`"inline"`/`"column"`|`"column"`| This enables or disables the sending of email alerts for all occurrences.
+| `email`|`"false"` / `"true"`|`"false"`| *Optional* This enables or disables the sending of email alerts for all occurrences. Hint: This only works if at least one of the above alert options is enabled!
 | `alertFile`|"ownAlertFile.mp3"|not configured| *Optional* define your own jingel in "MMM-myStrom/sounds/"
 
 IMPORTANT: All alert settings at device level only work if the global setting `alertEnabled` is set to `true`!
