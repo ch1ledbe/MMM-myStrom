@@ -12,8 +12,7 @@
   "dependencies": {
     "axios": "^1.7.2",
     "node-fetch": "2",
-    "nodemailer": "^7.0.11",
-    "nodemailer-smtp-transport": "^2.4.2"
+    "nodemailer": "^7.0.11"
   },
   "scripts": {
     "upgrade": "BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@.*/@@') && git fetch --all && git reset --hard origin/$BRANCH && git clean -fd && npm install"
