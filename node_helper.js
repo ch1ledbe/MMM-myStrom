@@ -1,8 +1,8 @@
-/* MagicMirror² Node Helper for MMM-myStrom (patched & improved)
- * - Devices are ALWAYS polled (even if offline at MM startup)
- * - Device type is dynamically auto-detected during polling
- * - UNKNOWN devices reclassify automatically
- * - PIR coming online later now works correctly
+/* MagicMirror² Node Helper for MMM-myStrom
+ * - Every device is polled in its own loop with the interval of its type
+ * - A new request is only started after the previous one finished (no pile-up)
+ * - Device type is auto-detected during polling, UNKNOWN devices reclassify automatically
+ * - SMTP credentials can be kept out of config.js (secrets.json or environment variables)
  */
 
 const NodeHelper = require("node_helper");
@@ -12,310 +12,252 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 
+const ENDPOINTS = [
+  "/api/v1/device",
+  "/report",
+  "/api/v1/sensors",
+  "/rest?get=report",
+];
+
+const ALERT_SUBJECT_KEYS = {
+  OFFON: "EMAIL_SUBJECT_ON",
+  ONOFF: "EMAIL_SUBJECT_OFF",
+  POWER: "EMAIL_SUBJECT_POWER",
+  POWER_NORMAL: "EMAIL_SUBJECT_POWER_NORMAL",
+  PIR_CLEAR: "EMAIL_SUBJECT_PIR_CLEAR"
+};
+
+const MIN_INTERVAL_MS = 1000;
+const DEFAULT_EMAIL_COOLDOWN_MS = 60000;
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+// Hostname, IPv4 address or either of them with ":port" - nothing that could alter the URL path
+const HOST_PATTERN = /^(?=.{1,253}(:\d{1,5})?$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*(?::\d{1,5})?$/;
+
+const SECRETS_FILE = path.resolve(__dirname, "secrets.json");
 
 // Load translations
 let translations = {};
 
 function loadTranslations() {
-  const lang = (global.config.language || "en").toLowerCase();
+  const lang = String(global.config?.language || "en").toLowerCase().replace(/[^a-z-]/g, "");
   const file = path.resolve(__dirname, "translations", `${lang}.json`);
+  const fallback = path.resolve(__dirname, "translations", "en.json");
 
-  if (fs.existsSync(file)) {
-    translations = JSON.parse(fs.readFileSync(file, "utf8"));
-  } else {
-    translations = JSON.parse(fs.readFileSync(path.resolve(__dirname, "translations/en.json"), "utf8"));
-  }
+  translations = JSON.parse(fs.readFileSync(fs.existsSync(file) ? file : fallback, "utf8"));
 }
 
 function t(key) {
   return translations[key] || key;
 }
 
+function isValidHost(host) {
+  return typeof host === "string" && HOST_PATTERN.test(host);
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function deepMerge(target, source) {
+  const out = { ...target };
+  for (const [k, v] of Object.entries(source || {})) {
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k], v) : v;
+  }
+  return out;
+}
+
 module.exports = NodeHelper.create({
   start() {
     console.log("[MMM-myStrom] node_helper start");
-    this.rooms = [];
-    this.devices = []; // flat list: { room, name, ip, type }
-    this.timers = {};
-    this.timeoutMs = 4000;
-    loadTranslations();
-    console.log("[MMM-myStrom] Node helper started with language translations");
+    this.configured = false;
+    this.configJson = null;
+    this.devices = []; // flat list: { room, name, ip, type, url }
+    this.running = false;
+    this.lastResults = {};
+    this.emailAlert = { enabled: false };
+    this.lastEmailSent = {};
     this.transporter = null;
+    loadTranslations();
   },
 
   stop() {
-    for (const t of Object.values(this.timers)) clearInterval(t);
-    this.timers = {};
+    this.stopPolling();
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification === "MMM_MYStrom_CONFIG") {
-      console.log("[MMM-myStrom] received CONFIG");
-      this.rooms = payload.rooms || [];
-      this.timeoutMs = payload.timeoutMs || 4000;
-      this.emailAlert = payload.emailAlert || { enabled: false };
-      this.setupEmailTransport();
+      this.handleConfig(payload || {});
+    } else if (notification === "MMM_MYStrom_EMAIL_ALERT") {
+      this.sendEmailAlert(payload || {});
+    }
+  },
 
-      this.devices = [];
-      for (const room of this.rooms) {
-        for (const d of room.devices) {
-          this.devices.push({ room: room.room, name: d.name, ip: d.ip, type: null });
+  /* ---------------------------------------------------------------
+   *  Configuration
+   *  The config is only accepted once per MagicMirror start. Every
+   *  browser that opens the mirror sends it again; a different config
+   *  from another client is ignored so it cannot redirect polling.
+   * --------------------------------------------------------------- */
+  handleConfig(payload) {
+    const json = JSON.stringify(payload);
+
+    if (this.configured) {
+      if (json !== this.configJson) {
+        console.warn("[MMM-myStrom] Ignoring a different CONFIG from another client. Restart MagicMirror to apply config changes.");
+      }
+      // Give the (re)connected client the current state right away
+      const results = Object.values(this.lastResults);
+      if (results.length) this.sendSocketNotification("MMM_MYStrom_BULK", results);
+      return;
+    }
+
+    console.log("[MMM-myStrom] received CONFIG");
+    this.configured = true;
+    this.configJson = json;
+
+    this.timeoutMs = Number(payload.timeoutMs) > 0 ? Number(payload.timeoutMs) : 4000;
+    this.intervals = {
+      PIR: this.sanitizeInterval(payload.PIRUpdateInterval, 10000),
+      SWITCH: this.sanitizeInterval(payload.SwitchUpdateInterval, 2000),
+      BULB: this.sanitizeInterval(payload.BulbUpdateInterval, 2000),
+    };
+    this.intervals.UNKNOWN = Math.min(this.intervals.PIR, this.intervals.SWITCH, this.intervals.BULB);
+
+    this.emailAlert = this.resolveEmailConfig(payload.emailAlert);
+    this.setupEmailTransport();
+
+    this.devices = [];
+    for (const room of Array.isArray(payload.rooms) ? payload.rooms : []) {
+      for (const d of Array.isArray(room.devices) ? room.devices : []) {
+        const ip = typeof d.ip === "string" ? d.ip.trim() : d.ip;
+        const dev = { room: room.room, name: d.name, ip, type: null, url: null, timer: null };
+
+        if (!isValidHost(ip)) {
+          console.error("[MMM-myStrom] Invalid device address, device skipped:", d.ip);
+          this.publish(dev, null, "INVALID_IP");
+          continue;
         }
+        this.devices.push(dev);
       }
-
-      // No more one-time detectAll()
-      // Instead, we set up polling for ALL devices and dynamically detect type
-      this.setupPolling(payload);
     }
 
-    else if (notification === "MMM_MYStrom_EMAIL_ALERT") {
-      this.sendEmailAlert(payload);
-    }
+    this.startPolling();
+  },
+
+  sanitizeInterval(value, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.max(MIN_INTERVAL_MS, n);
   },
 
   /* ---------------------------------------------------------------
-   *  Play alert sound
+   *  Polling: one self-scheduling loop per device
    * --------------------------------------------------------------- */
-  _playSound(path) {
-    const audio = new Audio(path);
-    audio.volume = 100.0;
-    audio.play().catch(err => {
-      console.warn("[MMM-myStrom] Audio playback failed:", err);
-    });
-  },
+  startPolling() {
+    this.stopPolling();
+    this.running = true;
 
-  /* ---------------------------------------------------------------
-  *  EMAIL SUPPORT — Nodemailer 6.x + 7.x Compatible
-  * --------------------------------------------------------------- */
+    console.log("[MMM-myStrom] polling", this.devices.length, "devices, intervals (ms):", this.intervals);
 
-  setupEmailTransport() {
-    const cfg = this.emailAlert;
-
-    if (!cfg || !cfg.enabled) {
-      console.log("[MMM-myStrom] Email disabled");
-      return;
-    }
-
-    if (!cfg.smtp || !cfg.smtp.host) {
-      console.error("[MMM-myStrom] Missing SMTP config");
-      return;
-    }
-
-    try {
-      this.transporter = nodemailer.createTransport({
-        host: cfg.smtp.host,
-        port: cfg.smtp.port || 587,
-        secure: cfg.smtp.secure || false, // true for 465
-        auth: cfg.smtp.auth
-          ? {
-              user: cfg.smtp.auth.user,
-              pass: cfg.smtp.auth.pass
-            }
-          : undefined
-      });
-
-      console.log("[MMM-myStrom] Email transport initialized (Nodemailer native SMTP)");
-      
-    } catch (e) {
-      console.error("[MMM-myStrom] Failed to initialize transporter:", e);
-      this.transporter = null;
+    for (const dev of this.devices) {
+      this.pollDevice(dev);
     }
   },
 
-  async sendEmailAlert(alert) {
-    const cfg = this.emailAlert;
+  stopPolling() {
+    this.running = false;
+    for (const dev of this.devices) clearTimeout(dev.timer);
+  },
 
-    if (!cfg?.enabled) {
-      console.log("[MMM-myStrom] Email disabled (alert skipped)");
-      return;
-    }
-
-    if (!this.transporter) {
-      console.error("[MMM-myStrom] Email transporter not set up — calling setupEmailTransport()");
-      this.setupEmailTransport();
-      if (!this.transporter) {
-        console.error("[MMM-myStrom] Still no transporter, aborting email");
-        return;
-      }
-    }
-
-    if (!cfg.from || !cfg.to) {
-      console.error("[MMM-myStrom] Missing 'from' or 'to' email fields");
-      return;
-    }
-
-    const subjectKey = {
-      "OFFON": "EMAIL_SUBJECT_ON",
-      "ONOFF": "EMAIL_SUBJECT_OFF",
-      "POWER": "EMAIL_SUBJECT_POWER",
-      "POWER_NORMAL": "EMAIL_SUBJECT_POWER_NORMAL",
-      "PIR_CLEAR": "EMAIL_SUBJECT_PIR_CLEAR"
-    }[alert.alertType] || "EMAIL_ALERT_TYPE";
-
-    const subject = `${t(subjectKey)} - ${alert.name || alert.ip}`;
-
-    let text = "";
-    text += `${t("EMAIL_DEVICE")}: ${alert.name || alert.ip}\n`;
-    text += `${t("EMAIL_TYPE")}: ${alert.type}\n`;
-    if (alert.room) text += `${t("EMAIL_ROOM")}: ${alert.room}\n`;
-    if (alert.power !== undefined) text += `${t("EMAIL_POWER")}: ${alert.power} W\n`;
-    if (alert.threshold !== undefined) text += `${t("EMAIL_THRESHOLD")}: ${alert.threshold} W\n`;
-    text += `${t("EMAIL_ALERT_TYPE")}: ${alert.alertType}\n`;
-    text += `${t("EMAIL_TIME")}: ${new Date().toLocaleString()}\n`;
+  async pollDevice(dev) {
+    if (!this.running) return;
 
     try {
-      await this.transporter.sendMail({
-        from: cfg.from,
-        to: cfg.to,
-        subject,
-        text
-      });
-
-      console.log("[MMM-myStrom] Email sent:", subject);
+      const values = await this.readOnce(dev);
+      this.publish(dev, values, null);
     } catch (err) {
-      console.error("[MMM-myStrom] Email send error:", err);
+      this.publish(dev, null, this.fmtError(err), err?.response?.status);
     }
+
+    if (!this.running) return;
+    const interval = this.intervals[dev.type] || this.intervals.UNKNOWN;
+    dev.timer = setTimeout(() => this.pollDevice(dev), interval);
   },
-  /* Allow per-device email alert enable/disable */
-  deviceEmailEnabled(dev) {
-    if (typeof dev.email === "boolean") return dev.email;
-    return this.config.defaultEmailAlert;
-  },
 
-
-  /* ---------------------------------------------------------------
-   *  Poll ALL devices. Type is detected on demand.
-   * --------------------------------------------------------------- */
-  setupPolling(cfg) {
-    const interval = Math.min(
-      cfg.PIRUpdateInterval,
-      cfg.SwitchUpdateInterval,
-      cfg.BulbUpdateInterval
-    );
-
-    // Fallback if all intervals were missing
-    const finalInterval = interval || 5000;
-
-    // Clear previous polling
-    for (const t of Object.values(this.timers)) clearInterval(t);
-    this.timers = {};
-
-    console.log("[MMM-myStrom] starting universal polling at", finalInterval, "ms");
-
-    this.timers.ALL = setInterval(async () => {
-      const results = await Promise.all(
-        this.devices.map(async (dev) => {
-          try {
-            // 1) Detect type if missing or unknown
-            if (!dev.type || dev.type === "UNKNOWN") {
-              try {
-                const t = await this.detectDeviceType(dev.ip);
-                if (t && t !== "UNKNOWN") {
-                  console.log("[MMM-myStrom] Device reclassified:", dev.ip, "->", t);
-                  dev.type = t;
-                }
-              } catch (e) {
-                // still unknown
-              }
-            }
-
-            // 2) Attempt to read device (might also detect type implicitly)
-            const values = await this.readOnce(dev);
-
-            return {
-              ip: dev.ip,
-              type: dev.type || "UNKNOWN",
-              values,
-              ts: Date.now(),
-              error: null,
-              name: dev.name,
-              room: dev.room
-            };
-          } catch (err) {
-            return {
-              ip: dev.ip,
-              type: dev.type || "UNKNOWN",
-              values: null,
-              ts: Date.now(),
-              error: this.fmtError(err),
-              name: dev.name,
-              room: dev.room
-            };
-          }
-        })
-      );
-
-      this.sendSocketNotification("MMM_MYStrom_BULK", results);
-    }, finalInterval);
+  publish(dev, values, error, errorDetail) {
+    const result = {
+      ip: dev.ip,
+      type: dev.type || "UNKNOWN",
+      values,
+      ts: Date.now(),
+      error,
+      errorDetail: errorDetail ?? null,
+      name: dev.name,
+      room: dev.room,
+    };
+    this.lastResults[dev.ip] = result;
+    this.sendSocketNotification("MMM_MYStrom_DATA", result);
   },
 
   /* ---------------------------------------------------------------
-   * Device Type Detection (auto retries during polling)
+   * readOnce(): reads the device and detects / refines its type
    * --------------------------------------------------------------- */
-  async detectDeviceType(ip) {
-    const urls = [
-      `http://${ip}/api/v1/device`,
-      `http://${ip}/report`,
-      `http://${ip}/api/v1/sensors`,
-      `http://${ip}/rest?get=report`,
-    ];
+  async readOnce(dev) {
+    // Try the endpoint that worked last time first
+    const urls = ENDPOINTS.map(ep => `http://${dev.ip}${ep}`);
+    if (dev.url) urls.sort((a, b) => (a === dev.url ? -1 : b === dev.url ? 1 : 0));
+
+    let fallbackBody = null;
+    let lastErr = null;
 
     for (const url of urls) {
+      let data;
       try {
-        const res = await axios.get(url, { timeout: this.timeoutMs });
-        const data = typeof res.data === "string" ? this.tryJson(res.data) : res.data;
-        if (data && typeof data === "object") {
-          const body = this.unwrapKeyed(data);
-          if (body) {
-            if ("motion" in body) return "PIR";
-            if ("relay" in body) return "SWITCH";
-            if ("on" in body || "color" in body) return "BULB";
-          }
-        }
+        data = await this.fetchJson(url);
       } catch (e) {
-        // Try next endpoint
+        lastErr = e;
+        continue;
       }
+      if (!data || typeof data !== "object") continue;
+
+      const body = this.unwrapKeyed(data) || data;
+      const detected = this.classify(body);
+
+      if (detected !== "UNKNOWN" && (!dev.type || dev.type === "UNKNOWN" || dev.type === detected)) {
+        if (dev.type !== detected) console.log("[MMM-myStrom] Device classified:", dev.ip, "->", detected);
+        dev.type = detected;
+        dev.url = url;
+        return this.formatValues(dev, body);
+      }
+
+      if (!fallbackBody) fallbackBody = body;
     }
+
+    if (fallbackBody) return fallbackBody;
+    throw lastErr || new Error("No data");
+  },
+
+  async fetchJson(url) {
+    const res = await axios.get(url, {
+      timeout: this.timeoutMs,
+      maxRedirects: 0,
+      maxContentLength: MAX_RESPONSE_BYTES,
+      responseType: "text",
+      transformResponse: [d => d],
+    });
+    return this.tryJson(res.data);
+  },
+
+  classify(body) {
+    if (!body || typeof body !== "object") return "UNKNOWN";
+    if ("motion" in body) return "PIR";
+    if ("relay" in body) return "SWITCH";
+    if ("on" in body || "color" in body) return "BULB";
     return "UNKNOWN";
   },
 
-  /* ---------------------------------------------------------------
-   * readOnce(): Also updates type automatically if data matches
-   * --------------------------------------------------------------- */
-  async readOnce(dev) {
-    const urlCandidates = [
-      `http://${dev.ip}/api/v1/device`,
-      `http://${dev.ip}/report`,
-      `http://${dev.ip}/api/v1/sensors`,
-      `http://${dev.ip}/rest?get=report`,
-    ];
-
-    let data = null;
-    let lastErr = null;
-
-    for (const url of urlCandidates) {
-      try {
-        const res = await axios.get(url, { timeout: this.timeoutMs });
-        data = typeof res.data === "string" ? this.tryJson(res.data) : res.data;
-        if (data) break;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    if (!data) throw lastErr || new Error("No data");
-
-    const body = this.unwrapKeyed(data) || data;
-
-    // Auto refine type detection from returned values
-    if (!dev.type || dev.type === "UNKNOWN") {
-      if ("motion" in body) dev.type = "PIR";
-      else if ("relay" in body) dev.type = "SWITCH";
-      else if ("on" in body || "color" in body) dev.type = "BULB";
-    }
-
-    /* ---- Format according to (possibly newly detected) type ---- */
-
+  formatValues(dev, body) {
     if (dev.type === "PIR") {
       return {
         motion: this._readBool(body.motion),
@@ -332,25 +274,160 @@ module.exports = NodeHelper.create({
       };
     }
 
-    if (dev.type === "BULB") {
-      const out = {
-        on: this._readBool(body.on),
-        color: body.color,
-        power: body.power,
-        colorHex: null
-      };
+    // BULB
+    const out = {
+      on: this._readBool(body.on),
+      color: body.color,
+      power: body.power,
+      colorHex: null,
+    };
 
-      try {
-        const parsedHex = parseColorToHex(body);
-        if (parsedHex) out.colorHex = parsedHex;
-      } catch (err) {
-        console.warn("[MMM-myStrom] color parse error:", dev.ip, err);
-      }
-
-      return out;
+    try {
+      const parsedHex = parseColorToHex(body);
+      if (parsedHex) out.colorHex = parsedHex;
+    } catch (err) {
+      console.warn("[MMM-myStrom] color parse error:", dev.ip, err);
     }
 
-    return body;
+    return out;
+  },
+
+  /* ---------------------------------------------------------------
+   *  EMAIL SUPPORT
+   * --------------------------------------------------------------- */
+
+  // Priority: environment variables > secrets.json > config.js
+  resolveEmailConfig(fromConfig) {
+    let cfg = isPlainObject(fromConfig) ? fromConfig : { enabled: false };
+    const configHasPassword = Boolean(cfg.smtp?.auth?.pass);
+
+    if (fs.existsSync(SECRETS_FILE)) {
+      try {
+        const secrets = JSON.parse(fs.readFileSync(SECRETS_FILE, "utf8"));
+        cfg = deepMerge(cfg, secrets.emailAlert || secrets);
+        console.log("[MMM-myStrom] Loaded email settings from secrets.json");
+      } catch (e) {
+        console.error("[MMM-myStrom] Could not read secrets.json:", e.message);
+      }
+    }
+
+    const env = process.env;
+    if (env.MYSTROM_SMTP_USER || env.MYSTROM_SMTP_PASS) {
+      cfg = deepMerge(cfg, {
+        smtp: {
+          auth: {
+            ...(env.MYSTROM_SMTP_USER ? { user: env.MYSTROM_SMTP_USER } : {}),
+            ...(env.MYSTROM_SMTP_PASS ? { pass: env.MYSTROM_SMTP_PASS } : {}),
+          },
+        },
+      });
+    }
+
+    if (cfg.enabled && configHasPassword) {
+      console.warn("[MMM-myStrom] SMTP password is set in config.js and is visible to every browser that opens the mirror. Move it to secrets.json or MYSTROM_SMTP_PASS.");
+    }
+
+    return cfg;
+  },
+
+  setupEmailTransport() {
+    const cfg = this.emailAlert;
+    this.transporter = null;
+
+    if (!cfg || !cfg.enabled) {
+      console.log("[MMM-myStrom] Email disabled");
+      return;
+    }
+
+    if (!cfg.smtp || !cfg.smtp.host) {
+      console.error("[MMM-myStrom] Missing SMTP config");
+      return;
+    }
+
+    try {
+      this.transporter = nodemailer.createTransport({
+        host: cfg.smtp.host,
+        port: cfg.smtp.port || 587,
+        secure: cfg.smtp.secure || false, // true for 465
+        auth: cfg.smtp.auth?.user
+          ? {
+              user: cfg.smtp.auth.user,
+              pass: cfg.smtp.auth.pass,
+            }
+          : undefined,
+      });
+
+      console.log("[MMM-myStrom] Email transport initialized");
+    } catch (e) {
+      console.error("[MMM-myStrom] Failed to initialize transporter:", e.message);
+      this.transporter = null;
+    }
+  },
+
+  async sendEmailAlert(alert) {
+    const cfg = this.emailAlert;
+
+    if (!cfg?.enabled) return;
+
+    // Only accept alerts for configured devices and known alert types,
+    // and take name/room from our own device list instead of the payload.
+    const dev = this.devices.find(d => d.ip === alert.ip);
+    const subjectKey = ALERT_SUBJECT_KEYS[alert.alertType];
+    if (!dev || !subjectKey) {
+      console.warn("[MMM-myStrom] Ignoring email alert for unknown device or alert type:", alert.ip, alert.alertType);
+      return;
+    }
+
+    // Rate limit per device and alert type
+    const cooldown = Number(cfg.cooldownMs) >= 0 ? Number(cfg.cooldownMs) : DEFAULT_EMAIL_COOLDOWN_MS;
+    const key = `${dev.ip}|${alert.alertType}`;
+    const now = Date.now();
+    if (this.lastEmailSent[key] && now - this.lastEmailSent[key] < cooldown) {
+      console.log("[MMM-myStrom] Email alert suppressed (cooldown):", key);
+      return;
+    }
+
+    if (!this.transporter) {
+      this.setupEmailTransport();
+      if (!this.transporter) {
+        console.error("[MMM-myStrom] No email transporter, aborting email");
+        return;
+      }
+    }
+
+    if (!cfg.from || !cfg.to) {
+      console.error("[MMM-myStrom] Missing 'from' or 'to' email fields");
+      return;
+    }
+
+    this.lastEmailSent[key] = now;
+
+    const label = dev.name || dev.ip;
+    const subject = `${t(subjectKey)} - ${label}`;
+    const power = Number(alert.power);
+    const threshold = Number(alert.threshold);
+
+    let text = "";
+    text += `${t("EMAIL_DEVICE")}: ${label}\n`;
+    text += `${t("EMAIL_TYPE")}: ${dev.type || "UNKNOWN"}\n`;
+    if (dev.room) text += `${t("EMAIL_ROOM")}: ${dev.room}\n`;
+    if (Number.isFinite(power)) text += `${t("EMAIL_POWER")}: ${power} W\n`;
+    if (Number.isFinite(threshold)) text += `${t("EMAIL_THRESHOLD")}: ${threshold} W\n`;
+    text += `${t("EMAIL_ALERT_TYPE")}: ${alert.alertType}\n`;
+    text += `${t("EMAIL_TIME")}: ${new Date().toLocaleString()}\n`;
+
+    try {
+      await this.transporter.sendMail({
+        from: cfg.from,
+        to: cfg.to,
+        subject,
+        text,
+      });
+
+      console.log("[MMM-myStrom] Email sent:", subject);
+    } catch (err) {
+      console.error("[MMM-myStrom] Email send error:", err.message);
+    }
   },
 
   /* ---------------------------------------------------------------
@@ -359,12 +436,17 @@ module.exports = NodeHelper.create({
   unwrapKeyed(obj) {
     if (!obj || typeof obj !== "object") return null;
     const keys = Object.keys(obj);
-    if (keys.length === 1 && typeof obj[keys[0]] === "object") return obj[keys[0]];
+    if (keys.length === 1 && obj[keys[0]] && typeof obj[keys[0]] === "object") return obj[keys[0]];
     return obj;
   },
 
   tryJson(txt) {
-    try { return JSON.parse(txt); } catch { return null; }
+    if (txt && typeof txt === "object") return txt;
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
   },
 
   _readBool(v) {
@@ -376,8 +458,8 @@ module.exports = NodeHelper.create({
 
   fmtError(err) {
     if (!err) return "ERROR_UNKNOWN";
-    if (err.code === 'ECONNABORTED') return "DEVICE_TIMEOUT";
-    if (err.response && err.response.status) return `HTTP ${err.response.status}`;
+    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") return "DEVICE_TIMEOUT";
+    if (err.response && err.response.status) return "HTTP_ERROR";
     if (err.request) return "NO_RESPONSE";
     return err.message || String(err);
   },
@@ -417,20 +499,14 @@ function parseColorToHex(body) {
       if (hex) return hex;
     }
 
-    // Some devices might use commas for hsv or indicate hsv in mode
-    if (s.includes(",") && mode.includes("hsv")) {
-      const hex = parseHSVStringToBestHex(s);
-      if (hex) return hex;
-    }
-
     // RGB triplet: "R,G,B" or "R G B"
     if (s.includes(",") || s.split(/\s+/).length === 3) {
       const parts = s.split(/[,\s]+/).map(p => p.trim()).filter(Boolean).map(Number);
-      if (parts.length >= 3 && parts.slice(0,3).every(isFiniteNumber)) {
-        let [R,G,B] = parts.slice(0,3).map(Number);
+      if (parts.length >= 3 && parts.slice(0, 3).every(isFiniteNumber)) {
+        let [R, G, B] = parts.slice(0, 3).map(Number);
         // if in 0..1 range, scale to 0..255
         if (R <= 1 && G <= 1 && B <= 1) {
-          R = Math.round(R * 255); G = Math.round(G * 255); B = Math.round(B * 255);
+          [R, G, B] = [R, G, B].map(n => Math.round(n * 255));
         }
         return rgbToHex(R, G, B);
       }
@@ -468,7 +544,7 @@ function parseHSVStringToBestHex(hStr) {
   const A = parts[1];
   const B = parts.length >= 3 ? parts[2] : parts[1];
 
-  const FORCED_V = 80; // always use full brightness
+  const FORCED_V = 80; // fixed brightness for a readable swatch
 
   // Interpret as H,S,V (with V forced)
   const hex1 = hsvToHex(H, A, FORCED_V);
@@ -485,14 +561,12 @@ function parseHSVStringToBestHex(hStr) {
 
     // prefer the result where R and G are closer to each other for yellow hues
     if (Math.abs(ratio2 - 1) + 0.0001 < Math.abs(ratio1 - 1)) {
-      console.log("[MMM-myStrom] HSV fallback used (H,V,S) for", hStr, "->", hex2);
       return hex2;
     }
   }
 
   return hex1;
 }
-
 
 function hsvToHex(h, s, v) {
   h = Number(h) || 0;
@@ -507,14 +581,15 @@ function hsvToHex(h, s, v) {
   const c = v * s;
   const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
   const m = v - c;
-  let r = 0, g = 0, b = 0;
-
-  if (hh >= 0 && hh < 60)        { r = c; g = x; b = 0; }
-  else if (hh >= 60 && hh < 120) { r = x; g = c; b = 0; }
-  else if (hh >= 120 && hh < 180){ r = 0; g = c; b = x; }
-  else if (hh >= 180 && hh < 240){ r = 0; g = x; b = c; }
-  else if (hh >= 240 && hh < 300){ r = x; g = 0; b = c; }
-  else                            { r = c; g = 0; b = x; }
+  const sector = Math.floor(hh / 60);
+  const [r, g, b] = [
+    [c, x, 0],
+    [x, c, 0],
+    [0, c, x],
+    [0, x, c],
+    [x, 0, c],
+    [c, 0, x],
+  ][sector] || [c, 0, x];
 
   const R = Math.round((r + m) * 255);
   const G = Math.round((g + m) * 255);
@@ -524,15 +599,15 @@ function hsvToHex(h, s, v) {
 }
 
 function rgbToHex(r, g, b) {
-  const clamp = (n) => Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
+  const clamp = n => Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
   const R = clamp(r), G = clamp(g), B = clamp(b);
   return `#${[R, G, B].map(n => n.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
 }
 
 function hexToRGB(hex) {
   const n = (hex || "").replace("#", "");
-  if (!/^[0-9A-Fa-f]{6}$/.test(n)) return [0,0,0];
-  return [parseInt(n.substr(0,2),16), parseInt(n.substr(2,2),16), parseInt(n.substr(4,2),16)];
+  if (!/^[0-9A-Fa-f]{6}$/.test(n)) return [0, 0, 0];
+  return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
 }
 
 function isFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }

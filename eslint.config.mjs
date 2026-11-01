@@ -1,11 +1,12 @@
-import css from "@eslint/css"
-import { defineConfig } from "eslint/config"
-import globals from "globals"
-import js from "@eslint/js"
-import markdown from "@eslint/markdown"
-import stylistic from "@stylistic/eslint-plugin"
+import css from "@eslint/css";
+import { defineConfig } from "eslint/config";
+import globals from "globals";
+import js from "@eslint/js";
+import markdown from "@eslint/markdown";
+import stylistic from "@stylistic/eslint-plugin";
 
 export default defineConfig([
+  { ignores: ["node_modules/**"] },
   { files: ["**/*.css"], plugins: { css }, language: "css/css", extends: ["css/recommended"] },
   {
     files: ["**/*.js", "**/*.mjs"],
@@ -18,14 +19,15 @@ export default defineConfig([
         Module: "readonly",
       },
     },
-    plugins: { js, stylistic },
-    extends: ["js/recommended", "stylistic/recommended"],
+    plugins: { js },
+    extends: [
+      "js/recommended",
+      stylistic.configs.customize({ quotes: "double", semi: true, indent: 2, braceStyle: "1tbs", commaDangle: "only-multiline" }),
+    ],
     rules: {
       "@stylistic/brace-style": ["error", "1tbs", { allowSingleLine: true }],
-      "@stylistic/comma-dangle": ["error", "only-multiline"],
       "@stylistic/max-statements-per-line": ["error", { max: 2 }],
-      "@stylistic/quotes": ["error", "double"]
     }
   },
   { files: ["**/*.md"], plugins: { markdown }, language: "markdown/gfm", extends: ["markdown/recommended"] },
-])
+]);

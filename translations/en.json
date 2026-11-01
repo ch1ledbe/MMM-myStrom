@@ -31,5 +31,6 @@
   "EMAIL_POWER": "Power",
   "EMAIL_THRESHOLD": "Threshold",
   "EMAIL_ALERT_TYPE": "Alert type",
-  "EMAIL_TIME": "Time"
+  "EMAIL_TIME": "Time",
+  "INVALID_IP": "Invalid IP address"
 }
