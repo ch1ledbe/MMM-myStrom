@@ -31,5 +31,6 @@
   "EMAIL_POWER": "Leistung",
   "EMAIL_THRESHOLD": "Schwellenwert",
   "EMAIL_ALERT_TYPE": "Alarmtyp",
-  "EMAIL_TIME": "Zeit"
+  "EMAIL_TIME": "Zeit",
+  "INVALID_IP": "Ungültige IP-Adresse"
 }

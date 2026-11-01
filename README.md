@@ -2,9 +2,9 @@
 MMM-myStrom is a [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror) module for monitoring [myStrom](https://mystrom.ch/) smart home devices (Switch, Bulb, PIR).
 It supports room grouping, light and full layout modes, alert sounds, email notifications, and live power/motion tracking.
 
-# Features
+## Features
 - Automatic device type detection (PIR / Switch / Bulb)
-    - PIR vlaues: Motion (YES/NO), Ambient light (lx), Room temperature (°C)
+    - PIR values: Motion (YES/NO), Ambient light (lx), Room temperature (°C)
     - Switch values: Relay ON/OFF, Power usage (W), Room temperature (°C)
     - Bulb values: On/off state, Power, Light color
 - Multi-room layouts: `column` (hierarchical), `showRoomSideBySide`, `inline` (compact grid) and `light`
@@ -35,7 +35,7 @@ It supports room grouping, light and full layout modes, alert sounds, email noti
 cd ~/MagicMirror/modules
 git clone https://github.com/ch1ledbe/MMM-myStrom
 cd MMM-myStrom
-npm install
+npm install --omit=dev
 ```
 Your sound files go in:
 ```bash
@@ -46,6 +46,7 @@ HINT: The upgrade command is not available in versions below 1.1.0. A complete n
 ```bash
 npm run upgrade
 ```
+The upgrade runs `git pull --ff-only` and `npm install`. Your own sound files and `secrets.json` are kept. If you changed files of the module itself, git stops the upgrade instead of overwriting them.
 
 ## Configuration
 
@@ -95,7 +96,7 @@ Configuration with all options:
                 SWITCH: "switchOn.mp3",
                 BULB: "bulbOn.mp3"
             },
-            alertFileOff: {
+            alertFilesOff: {
                 PIR: "pirOff.mp3",
                 SWITCH: "switchOff.mp3",
                 BULB: "bulbOff.mp3"
@@ -116,15 +117,14 @@ Configuration with all options:
                 smtp: {
                     host: "smtp.gmail.com",
                     port: 465,
-                    secure: true,
-                    auth: {
-                        user: "alert@gmail.com",
-                        pass: "appPasswd"
-                    }
+                    secure: true
+                    // user and password go into secrets.json, see "Email configuration"
                 },
                 from: "alert@gmail.com",
-                to: "recipient1@gmail.com,recipient1@hotmail.com"
+                to: "recipient1@gmail.com,recipient1@hotmail.com",
+                cooldownMs: 60000
             },
+            defaultEmailAlert: false,
             devices: [
                 {
                     room: "Room 1",
@@ -147,7 +147,10 @@ Configuration with all options:
                             alertPowerNormal: true,
                             powerThreshold: 3,
                             email: true,
-                            alertFile: "alert1.mp3"
+                            alertFile: "alert1.mp3",
+                            alertFileOff: "alert2.mp3",
+                            alertFilePower: "power1.mp3",
+                            alertFilePowerNormal: "power2.mp3"
                         }
                     ]
                 },
@@ -174,19 +177,21 @@ Configuration with all options:
 |Global Options|Possible values|Default|Description
 |------|------|------|-----------
 | `layout`|`"inline"`/`"column"`|`"column"`| Horizontal and vertical alignment.
-| `showRoomSideBySide`|`"false"` / `"true"`|`"false"`| Shows rooms side by side in vertical alignmnet.
-| `displayMode`|`"light"`|not configured|*Optional* Simplified view of all devices.
+| `showRoomSideBySide`|`"false"` / `"true"`|`"false"`| Shows rooms side by side in vertical alignment.
+| `displayMode`|`"default"` / `"light"`|`"default"`|*Optional* `"light"` shows a simplified view of all devices.
 | `PIRUpdateInterval`|`>=2000` (ms)|`10000` (ms) | Update interval for motion detectors (10 seconds and more recommended).
 | `SwitchUpdateInterval`|`>=2000` (ms)|`2000` (ms) | Update interval for switch devices (2 seconds and more recommended).
 | `BulbUpdateInterval`|`>=2000` (ms)|`2000` (ms) | Update interval for bulbs (2 seconds and more recommended).
+| `timeoutMs`|`>0` (ms)|`4000` (ms) | Request timeout per device. A device is only polled again after the previous request finished.
 | `alertEnabled`|`"false"` / `"true"`|`"true"`| Global switch to enable or disable all types of alerts.
 | `powerThresholds`|Define device type values|SWITCH: 100, BULB: 4| Global power threshold settings in watts.
-| `alertFiles`|Define own sound files|not configured| Playing the device's own sound alert files when it is switched on.
-| `alertFileOff`|Define own sound files|not configured| Playing the device's own sound alert files when it is switched off.
-| `alertFilesPower`|Define own sound files|not configured| Playing the device's own sound alert files when the threshold is reached.
-| `alertFilesPowerNormal`|Define own sound files|not configured| Playing the device's own sound alert files if the power drops below the threshold again.
-| `alertFilesPirClear`|Define own sound files|not configured| Playing the device's own sound alert files when PIR motion is cleared.
-| `emailAlert`|Define private mailer|enabled: `"false"`| Global email settings
+| `alertFiles`|Sound file per device type|PIR: `alert1.mp3`, SWITCH: `alert2.mp3`, BULB: `alert3.mp3`| Sound per device type when a device is switched on.
+| `alertFilesOff`|Sound file per device type|same as `alertFiles`| Sound per device type when a device is switched off. The old name `alertFileOff` still works.
+| `alertFilesPower`|Sound file per device type|SWITCH: `power1.mp3`, BULB: `power2.mp3`| Sound per device type when the threshold is reached.
+| `alertFilesPowerNormal`|Sound file per device type|SWITCH: `power1.mp3`, BULB: `power2.mp3`| Sound per device type if the power drops below the threshold again.
+| `alertFilesPirClear`|Sound file per device type|PIR: `alert1.mp3`| Sound when PIR motion is cleared.
+| `emailAlert`|Define private mailer|enabled: `"false"`| Global email settings, see [Email configuration](#email-configuration).
+| `defaultEmailAlert`|`"false"` / `"true"`|`"false"`| Send email alerts for devices that have no own `email` option.
 | `devices`|as many devices and rooms as you want|see sample configuration|You can add unlimited devices to each room and create as many rooms as you need.
 
 |Device Options|Possible values|Default|Description
@@ -199,10 +204,18 @@ Configuration with all options:
 | `alertPower`|`"false"` / `"true"`|`"false"`| This enables or disables alerts for power activities.
 | `alertPowerNormal`|`"false"` / `"true"`|`"false"`| It triggers an alert if the power drops below the threshold again.
 | `powerThreshold`|`>0` (W)|SWITCH: 100 W, BULB: 4 W| Triggers an alert when this threshold is reached.
-| `email`|`"false"` / `"true"`|`"false"`| *Optional* This enables or disables the sending of email alerts for all occurrences. Hint: This only works if at least one of the above alert options is enabled!
-| `alertFile`|"ownAlertFile.mp3"|not configured| *Optional* define your own jingel in "MMM-myStrom/sounds/"
+| `email`|`"false"` / `"true"`|value of `defaultEmailAlert`| *Optional* This enables or disables the sending of email alerts for all occurrences. Hint: This only works if at least one of the above alert options is enabled!
+| `alertFile`|"ownAlertFile.mp3"|not configured| *Optional* Own sound in "MMM-myStrom/sounds/" when the device is switched on.
+| `alertFileOff`|"ownAlertFile.mp3"|not configured| *Optional* Own sound when the device is switched off.
+| `alertFilePower`|"ownAlertFile.mp3"|not configured| *Optional* Own sound when the power threshold is reached.
+| `alertFilePowerNormal`|"ownAlertFile.mp3"|not configured| *Optional* Own sound when the power drops below the threshold again.
+| `alertFilePirClear`|"ownAlertFile.mp3"|not configured| *Optional* Own sound when PIR motion is cleared.
+
+A device sound always wins over the global sound of the same alert type. If a device has no own sound for an alert type, the global sound for its device type is played.
 
 IMPORTANT: All alert settings at device level only work if the global setting `alertEnabled` is set to `true`!
+
+No alert is triggered by the first reading after MagicMirror starts or a browser reloads; this reading only sets the starting state.
 
 
 #### Email configuration
@@ -218,14 +231,11 @@ IMPORTANT: All alert settings at device level only work if the global setting `a
                 smtp: {
                     host: "smtp.gmail.com",
                     port: 587,
-                    secure: false, // true for port 465, false for 587
-                    auth: {
-                        user: "",
-                        pass: ""
-                    }
+                    secure: false // true for port 465, false for 587
                 },
                 from: "",     // Email sender
-                to: ""        // Email recipient(s), comma-separated allowed
+                to: "",       // Email recipient(s), comma-separated allowed
+                cooldownMs: 60000 // min. time between two emails per device and alert type
             },
             devices: [
                 ...
@@ -233,7 +243,24 @@ IMPORTANT: All alert settings at device level only work if the global setting `a
         }
     },
 ```
-Notes on SMTP provides
+
+##### SMTP user and password
+
+MagicMirror sends the whole module configuration to every browser that opens the mirror. A password in `config.js` can therefore be read by anyone who can reach the mirror in your network. Keep the SMTP login out of `config.js` and use one of these instead (the first one found wins):
+
+1. Environment variables `MYSTROM_SMTP_USER` and `MYSTROM_SMTP_PASS` for the MagicMirror process.
+2. A file `MMM-myStrom/secrets.json` (ignored by git, kept by `npm run upgrade`). Copy `secrets.example.json` and fill in your values:
+    ```bash
+    cd ~/MagicMirror/modules/MMM-myStrom
+    cp secrets.example.json secrets.json
+    chmod 600 secrets.json
+    ```
+
+`auth` in `config.js` still works, but MagicMirror logs a warning at start.
+
+Only alerts for configured devices are sent, and at most one email per device and alert type within `cooldownMs`.
+
+Notes on SMTP providers
 
 - Gmail
     - Use an App Password (NOT your real password!)
