@@ -30,23 +30,34 @@ It supports room grouping, light and full layout modes, alert sounds, email noti
 
 ## Installation
 
-### Install
 ```bash
 cd ~/MagicMirror/modules
 git clone https://github.com/ch1ledbe/MMM-myStrom
 cd MMM-myStrom
-npm install --omit=dev
+npm ci --omit=dev
 ```
 Your sound files go in:
 ```bash
 MMM-myStrom/sounds/
 ```
-### Upgrade
-HINT: The upgrade command is not available in versions below 1.1.0. A complete new installation must be carried out instead.
+
+## Update
+
 ```bash
-npm run upgrade
+cd ~/MagicMirror/modules/MMM-myStrom
+git pull
+npm ci --omit=dev
 ```
-The upgrade runs `git pull --ff-only` and `npm install`. Your own sound files and `secrets.json` are kept. If you changed files of the module itself, git stops the upgrade instead of overwriting them.
+
+Or in one step (Node.js 22 or newer):
+```bash
+cd ~/MagicMirror/modules/MMM-myStrom
+node --run upgrade
+```
+
+Your own sound files and `secrets.json` are kept. If you changed files of the module itself, git stops the update instead of overwriting them.
+
+HINT: The `upgrade` command is not available in versions below 1.1.0. A complete new installation must be carried out instead.
 
 ## Configuration
 
@@ -249,7 +260,7 @@ No alert is triggered by the first reading after MagicMirror starts or a browser
 MagicMirror sends the whole module configuration to every browser that opens the mirror. A password in `config.js` can therefore be read by anyone who can reach the mirror in your network. Keep the SMTP login out of `config.js` and use one of these instead (the first one found wins):
 
 1. Environment variables `MYSTROM_SMTP_USER` and `MYSTROM_SMTP_PASS` for the MagicMirror process.
-2. A file `MMM-myStrom/secrets.json` (ignored by git, kept by `npm run upgrade`). Copy `secrets.example.json` and fill in your values:
+2. A file `MMM-myStrom/secrets.json` (ignored by git, kept by updates). Copy `secrets.example.json` and fill in your values:
     ```bash
     cd ~/MagicMirror/modules/MMM-myStrom
     cp secrets.example.json secrets.json
