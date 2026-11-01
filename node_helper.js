@@ -6,7 +6,6 @@
  */
 
 const NodeHelper = require("node_helper");
-const axios = require("axios");
 const nodemailer = require("nodemailer");
 
 const fs = require("fs");
@@ -177,7 +176,7 @@ module.exports = NodeHelper.create({
       const values = await this.readOnce(dev);
       this.publish(dev, values, null);
     } catch (err) {
-      this.publish(dev, null, this.fmtError(err), err?.response?.status);
+      this.publish(dev, null, this.fmtError(err), err?.status);
     }
 
     if (!this.running) return;
@@ -239,14 +238,36 @@ module.exports = NodeHelper.create({
   },
 
   async fetchJson(url) {
-    const res = await axios.get(url, {
-      timeout: this.timeoutMs,
-      maxRedirects: 0,
-      maxContentLength: MAX_RESPONSE_BYTES,
-      responseType: "text",
-      transformResponse: [d => d],
+    // The timeout covers connecting and reading the body; redirects are not followed
+    const res = await fetch(url, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
-    return this.tryJson(res.data);
+
+    if (!res.ok) {
+      res.body?.cancel().catch(() => {});
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    if (!res.body) return null;
+
+    // Read the body with a size limit
+    const reader = res.body.getReader();
+    const chunks = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error("Response too large");
+      }
+      chunks.push(value);
+    }
+
+    return this.tryJson(Buffer.concat(chunks).toString("utf8"));
   },
 
   classify(body) {
@@ -458,9 +479,10 @@ module.exports = NodeHelper.create({
 
   fmtError(err) {
     if (!err) return "ERROR_UNKNOWN";
-    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") return "DEVICE_TIMEOUT";
-    if (err.response && err.response.status) return "HTTP_ERROR";
-    if (err.request) return "NO_RESPONSE";
+    if (err.name === "TimeoutError" || err.name === "AbortError") return "DEVICE_TIMEOUT";
+    if (err.status) return "HTTP_ERROR";
+    // fetch() rejects with TypeError("fetch failed") and the network error as cause
+    if (err.name === "TypeError" && err.cause) return "NO_RESPONSE";
     return err.message || String(err);
   },
 });

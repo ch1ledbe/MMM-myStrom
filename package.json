@@ -1,8 +1,24 @@
 {
   "name": "mmm-mystrom",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MMM-myStrom is a MagicMirror² module for monitoring myStrom smart home devices (Switch, Bulb, PIR).",
+  "keywords": [
+    "MagicMirror",
+    "MagicMirror²",
+    "module",
+    "myStrom",
+    "smart home",
+    "switch",
+    "bulb",
+    "PIR",
+    "motion",
+    "power",
+    "energy",
+    "alert",
+    "email"
+  ],
   "main": "MMM-myStrom.js",
+  "type": "commonjs",
   "license": "MIT",
   "author": "Bernie",
   "repository": {
@@ -10,10 +26,9 @@
     "url": "https://github.com/ch1ledbe/MMM-myStrom.git"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "axios": "^1.12.2",
     "nodemailer": "^10.3.1"
   },
   "devDependencies": {
@@ -26,7 +41,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "upgrade": "git pull --ff-only && npm install --omit=dev"
+    "upgrade": "git pull --ff-only && npm ci --omit=dev"
   },
   "overrides": {
     "minimatch": "^11.0.1",
